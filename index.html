@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Graph — редактор графов</title>
+    <title>Graph — заметки как графы</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
         body {
@@ -18,22 +18,13 @@
         #toolbar {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 6px;
             padding: 8px 10px;
             background: #1a1a1f;
             border-bottom: 1px solid #2a2a30;
             flex-shrink: 0;
             flex-wrap: wrap;
         }
-        #toolbar .group {
-            display: flex;
-            gap: 4px;
-            align-items: center;
-            margin-right: 6px;
-            padding-right: 6px;
-            border-right: 1px solid #2a2a30;
-        }
-        #toolbar .group:last-child { border-right: none; }
         #toolbar button {
             background: #2c2c35;
             border: none;
@@ -45,21 +36,49 @@
             cursor: pointer;
             touch-action: manipulation;
             white-space: nowrap;
-            transition: 0.1s;
         }
         #toolbar button:active { background: #3d3d4a; transform: scale(0.95); }
         #toolbar button.active { background: #5a4b8a; color: #fff; }
-        #toolbar button.tool-active { background: #3a5a8a; color: #fff; }
         #toolbar .spacer { flex: 1; }
-        #status {
-            padding: 4px 14px;
-            background: #0f0f12;
-            border-top: 1px solid #1a1a20;
-            font-size: 11px;
-            color: #888;
+        #toolbar .note-title {
+            color: #aaa;
+            font-size: 13px;
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        #main {
             display: flex;
-            justify-content: space-between;
+            flex: 1;
+            overflow: hidden;
+        }
+        #sidebar {
+            width: 200px;
+            background: #111116;
+            border-right: 1px solid #1e1e24;
+            overflow-y: auto;
             flex-shrink: 0;
+            padding: 8px;
+            display: none;
+        }
+        #sidebar .note-item {
+            padding: 8px 10px;
+            border-radius: 8px;
+            margin-bottom: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #aaa;
+            transition: 0.1s;
+        }
+        #sidebar .note-item:hover { background: #1e1e26; }
+        #sidebar .note-item.active { background: #2a2a3a; color: #fff; }
+        #sidebar .note-item .badge {
+            font-size: 10px;
+            background: #2a2a3a;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-left: 6px;
         }
         #canvas-wrap {
             flex: 1;
@@ -74,20 +93,16 @@
             height: 100%;
             touch-action: none;
         }
-        #report-panel {
-            background: #14141a;
-            border-top: 1px solid #2a2a30;
-            padding: 8px 14px;
-            max-height: 120px;
-            overflow-y: auto;
-            font-size: 12px;
+        #status {
+            padding: 4px 14px;
+            background: #0f0f12;
+            border-top: 1px solid #1a1a20;
+            font-size: 11px;
+            color: #888;
+            display: flex;
+            justify-content: space-between;
             flex-shrink: 0;
-            display: none;
-            line-height: 1.5;
         }
-        #report-panel .ok { color: #6f6; }
-        #report-panel .warn { color: #ff8; }
-        #report-panel .err { color: #f66; }
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -103,7 +118,7 @@
             padding: 20px;
             border-radius: 16px;
             width: 90%;
-            max-width: 360px;
+            max-width: 400px;
         }
         .modal-box textarea {
             width: 100%;
@@ -114,7 +129,7 @@
             color: #eee;
             font-size: 15px;
             resize: vertical;
-            min-height: 60px;
+            min-height: 80px;
         }
         .modal-box .actions {
             display: flex;
@@ -145,44 +160,37 @@
             display: none;
             z-index: 50;
         }
+        @media (max-width: 600px) {
+            #sidebar { width: 160px; }
+            #toolbar button { font-size: 11px; padding: 4px 10px; }
+        }
     </style>
 </head>
 <body>
 
 <div id="toolbar">
-    <div class="group">
-        <button id="tool-select" class="tool-active">🖱️</button>
-        <button id="tool-node">✏️</button>
-        <button id="tool-edge">🔗</button>
-        <button id="tool-delete">🗑️</button>
-    </div>
-    <div class="group">
-        <button id="btn-graph" class="active">🌐</button>
-        <button id="btn-todo">☑️</button>
-        <button id="btn-text">📄</button>
-    </div>
-    <div class="group">
-        <button id="btn-bpmn">🧩BPMN</button>
-    </div>
+    <button id="btn-sidebar">📋</button>
+    <span class="note-title" id="note-title">Выберите заметку</span>
     <span class="spacer"></span>
-    <div class="group">
-        <button id="btn-export">💾</button>
-        <button id="btn-import">📂</button>
-        <input type="file" id="file-input" accept=".json" style="display:none">
+    <button id="btn-text">📄</button>
+    <button id="btn-todo">☑️</button>
+    <button id="btn-graph" class="active">🌐</button>
+    <button id="btn-meta">🔗</button>
+    <button id="btn-new">➕</button>
+</div>
+
+<div id="main">
+    <div id="sidebar"></div>
+    <div id="canvas-wrap">
+        <canvas id="canvas"></canvas>
     </div>
 </div>
-
-<div id="canvas-wrap">
-    <canvas id="canvas"></canvas>
-</div>
-
-<div id="report-panel"></div>
 
 <div id="status">
     <span id="node-count">Узлов: 0</span>
     <span id="edge-count">Связей: 0</span>
     <span id="view-label">режим: граф</span>
-    <span id="tool-label">инструмент: выбрать</span>
+    <span id="meta-label"></span>
 </div>
 
 <div id="toast"></div>
@@ -190,7 +198,7 @@
 <!-- Модалка редактирования узла -->
 <div class="modal-overlay" id="edit-modal">
     <div class="modal-box">
-        <textarea id="edit-textarea" placeholder="Введите текст узла..."></textarea>
+        <textarea id="edit-textarea" placeholder="Текст узла..."></textarea>
         <div class="actions">
             <button class="cancel" id="edit-cancel">Отмена</button>
             <button class="save" id="edit-save">Сохранить</button>
@@ -198,32 +206,69 @@
     </div>
 </div>
 
+<!-- Модалка новой заметки -->
+<div class="modal-overlay" id="new-modal">
+    <div class="modal-box">
+        <textarea id="new-textarea" placeholder="Введите текст заметки..."></textarea>
+        <div class="actions">
+            <button class="cancel" id="new-cancel">Отмена</button>
+            <button class="save" id="new-save">Создать</button>
+        </div>
+    </div>
+</div>
+
 <script>
 (function(){
-    // ----- СОСТОЯНИЕ -----
+    // ----- СОСТОЯНИЕ ПРИЛОЖЕНИЯ -----
     let state = {
-        nodes: [],
-        edges: [],
-        nextId: 1,
-        viewMode: 'graph',
-        tool: 'select', // 'select' | 'node' | 'edge' | 'delete'
+        notes: [],
+        currentNoteId: null,
+        viewMode: 'graph', // 'text' | 'todo' | 'graph' | 'meta'
         selectedNodeId: null,
-        bpmnActive: false,
-        hasDemo: false
+        nextId: 1,
+        metaGraph: {
+            nodes: [],
+            edges: []
+        },
+        sidebarOpen: true
     };
 
-    // Восстанавливаем из localStorage
+    // ----- ДЕМО-ЗАМЕТКИ (классические рыбы) -----
+    const DEMO_NOTES = [
+        {
+            id: 1,
+            title: 'Лиса',
+            content: 'The quick brown fox jumps over the lazy dog. Это классическая панграмма, содержащая все буквы английского алфавита.'
+        },
+        {
+            id: 2,
+            title: 'Аэрофотосъёмка',
+            content: 'Аэрофотосъёмка ландшафта уже показала, что земля — это не просто поверхность, а сложная система взаимосвязей.'
+        },
+        {
+            id: 3,
+            title: 'Lorem Ipsum',
+            content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.'
+        },
+        {
+            id: 4,
+            title: 'Мысли',
+            content: 'Мысль — это связь. Одна мысль тянет за собой другую. Ассоциации рождают идеи. Идеи становятся действиями.'
+        }
+    ];
+
+    // ----- ЗАГРУЗКА / СОХРАНЕНИЕ -----
     function loadState() {
         try {
-            const saved = localStorage.getItem('graph_state');
+            const saved = localStorage.getItem('graph_app_state');
             if (saved) {
                 const parsed = JSON.parse(saved);
-                state.nodes = parsed.nodes || [];
-                state.edges = parsed.edges || [];
-                state.nextId = parsed.nextId || 1;
+                state.notes = parsed.notes || [];
+                state.currentNoteId = parsed.currentNoteId || null;
                 state.viewMode = parsed.viewMode || 'graph';
-                state.bpmnActive = parsed.bpmnActive || false;
-                state.hasDemo = true;
+                state.metaGraph = parsed.metaGraph || { nodes: [], edges: [] };
+                state.nextId = parsed.nextId || 1;
+                if (state.notes.length === 0) initDemoNotes();
                 return true;
             }
         } catch(e) {}
@@ -232,13 +277,66 @@
 
     function saveState() {
         const data = {
-            nodes: state.nodes,
-            edges: state.edges,
-            nextId: state.nextId,
+            notes: state.notes,
+            currentNoteId: state.currentNoteId,
             viewMode: state.viewMode,
-            bpmnActive: state.bpmnActive
+            metaGraph: state.metaGraph,
+            nextId: state.nextId
         };
-        localStorage.setItem('graph_state', JSON.stringify(data));
+        localStorage.setItem('graph_app_state', JSON.stringify(data));
+    }
+
+    function initDemoNotes() {
+        state.notes = DEMO_NOTES.map(n => ({
+            ...n,
+            graph: {
+                enabled: false,
+                nodes: [],
+                edges: []
+            },
+            todos: []
+        }));
+        state.currentNoteId = state.notes[0]?.id || null;
+        // Автоматически строим граф для первой заметки
+        const first = state.notes[0];
+        if (first) buildGraphFromText(first);
+        saveState();
+    }
+
+    // ----- ПОСТРОЕНИЕ ГРАФА ИЗ ТЕКСТА -----
+    function buildGraphFromText(note) {
+        const words = note.content.split(/[.\s,;!?()"']+/).filter(w => w.length > 2);
+        const uniqueWords = [...new Set(words)].slice(0, 12); // максимум 12 узлов
+        
+        const nodes = uniqueWords.map((word, i) => ({
+            id: state.nextId++,
+            text: word,
+            x: 80 + (i % 4) * 90 + Math.random() * 20,
+            y: 80 + Math.floor(i / 4) * 90 + Math.random() * 20
+        }));
+
+        const edges = [];
+        for (let i = 0; i < nodes.length - 1; i++) {
+            edges.push({
+                id: state.nextId++,
+                from: nodes[i].id,
+                to: nodes[i+1].id,
+                type: 'logical'
+            });
+        }
+
+        note.graph = {
+            enabled: true,
+            nodes: nodes,
+            edges: edges
+        };
+        saveState();
+        return note;
+    }
+
+    // ----- ПОЛУЧЕНИЕ ТЕКУЩЕЙ ЗАМЕТКИ -----
+    function getCurrentNote() {
+        return state.notes.find(n => n.id === state.currentNoteId) || null;
     }
 
     // ----- КАНВАС -----
@@ -260,18 +358,14 @@
 
     // ----- ЭМОДЗИ ПО ТЕКСТУ -----
     const EMOJI_MAP = {
-        'начало': '🟢', 'старт': '🟢', 'start': '🟢',
-        'конец': '🔴', 'end': '🔴', 'финиш': '🔴',
-        'решение': '🔶', 'если': '🔶', 'choice': '🔶',
-        'задача': '📋', 'task': '📋', 'сделать': '📋',
-        'событие': '📌', 'event': '📌', 'произошло': '📌',
-        'идея': '💡', 'idea': '💡',
-        'вопрос': '❓', 'question': '❓',
-        'человек': '👤', 'person': '👤',
-        'деньги': '💰', 'money': '💰',
-        'время': '⏰', 'time': '⏰',
-        'код': '💻', 'code': '💻',
-        'чувство': '❤️‍🩹', 'feeling': '❤️‍🩹'
+        'fox': '🦊', 'brown': '🟫', 'quick': '⚡',
+        'аэро': '🛩️', 'земля': '🌍', 'система': '⚙️',
+        'lorem': '📝', 'ipsum': '📝', 'dolor': '💭',
+        'мысль': '💡', 'идея': '💡', 'связь': '🔗',
+        'начало': '🟢', 'старт': '🟢',
+        'конец': '🔴', 'финиш': '🔴',
+        'решение': '🔶', 'если': '🔶',
+        'задача': '📋', 'task': '📋'
     };
 
     function getEmoji(text) {
@@ -289,69 +383,68 @@
         ctx.fillStyle = '#121216';
         ctx.fillRect(0, 0, W, H);
 
-        if (state.viewMode === 'graph') drawGraph();
-        else if (state.viewMode === 'todo') drawTodo();
-        else if (state.viewMode === 'text') drawText();
+        const note = getCurrentNote();
 
-        document.getElementById('node-count').textContent = 'Узлов: ' + state.nodes.length;
-        document.getElementById('edge-count').textContent = 'Связей: ' + state.edges.length;
-        document.getElementById('view-label').textContent = 'режим: ' + state.viewMode + (state.bpmnActive ? ' (BPMN)' : '');
-        document.getElementById('tool-label').textContent = 'инструмент: ' + state.tool;
+        if (state.viewMode === 'meta') {
+            drawMetaGraph();
+        } else if (note && note.graph && note.graph.enabled && state.viewMode === 'graph') {
+            drawGraph(note);
+        } else if (note && state.viewMode === 'todo') {
+            drawTodo(note);
+        } else if (note && state.viewMode === 'text') {
+            drawText(note);
+        } else {
+            drawEmptyState();
+        }
+
+        // Обновление статуса
+        if (note) {
+            document.getElementById('node-count').textContent = 'Узлов: ' + (note.graph?.nodes?.length || 0);
+            document.getElementById('edge-count').textContent = 'Связей: ' + (note.graph?.edges?.length || 0);
+            document.getElementById('note-title').textContent = note.title || 'Без названия';
+        } else {
+            document.getElementById('node-count').textContent = 'Узлов: 0';
+            document.getElementById('edge-count').textContent = 'Связей: 0';
+            document.getElementById('note-title').textContent = 'Нет заметок';
+        }
+        document.getElementById('view-label').textContent = 'режим: ' + state.viewMode;
+        document.getElementById('meta-label').textContent = state.viewMode === 'meta' ? '🌐 внешний граф' : '';
 
         saveState();
     }
 
-    function drawGraph() {
+    function drawGraph(note) {
+        const g = note.graph;
+        if (!g || !g.nodes) return;
+
         // Рёбра
         ctx.lineWidth = 2;
-        for (const e of state.edges) {
-            const from = state.nodes.find(n => n.id === e.from);
-            const to = state.nodes.find(n => n.id === e.to);
+        for (const e of g.edges) {
+            const from = g.nodes.find(n => n.id === e.from);
+            const to = g.nodes.find(n => n.id === e.to);
             if (!from || !to) continue;
             ctx.beginPath();
             ctx.moveTo(from.x, from.y);
             ctx.lineTo(to.x, to.y);
-            if (e.type === 'mystery') {
-                ctx.setLineDash([6, 6]);
-                ctx.strokeStyle = '#aa88ff';
-            } else {
-                ctx.setLineDash([]);
-                ctx.strokeStyle = state.bpmnActive ? '#ffaa44' : '#5588dd';
-            }
+            ctx.setLineDash(e.type === 'mystery' ? [6, 6] : []);
+            ctx.strokeStyle = e.type === 'mystery' ? '#aa88ff' : '#5588dd';
             ctx.stroke();
             ctx.setLineDash([]);
         }
 
         // Узлы
-        for (const n of state.nodes) {
-            const r = 28;
-            const emoji = getEmoji(n.content);
+        for (const n of g.nodes) {
+            const r = 26;
+            const emoji = getEmoji(n.text);
             ctx.beginPath();
             ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-
-            let fill = '#2a2a35';
-            let stroke = '#5a6a8a';
-            if (state.bpmnActive) {
-                if (n._bpmnStatus === 'ok') { fill = '#1a3a1a'; stroke = '#4caf50'; }
-                else if (n._bpmnStatus === 'warn') { fill = '#3a3a1a'; stroke = '#ffeb3b'; }
-                else if (n._bpmnStatus === 'err') { fill = '#3a1a1a'; stroke = '#f44336'; }
-            }
-            // Подсветка выбранного
-            if (state.selectedNodeId === n.id) {
-                stroke = '#88ddff';
-                ctx.shadowColor = '#88ddff';
-                ctx.shadowBlur = 15;
-            } else {
-                ctx.shadowBlur = 0;
-            }
-            ctx.fillStyle = fill;
+            ctx.fillStyle = state.selectedNodeId === n.id ? '#2a3a5a' : '#2a2a35';
             ctx.fill();
-            ctx.strokeStyle = stroke;
-            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = state.selectedNodeId === n.id ? '#88ddff' : '#5a6a8a';
+            ctx.lineWidth = state.selectedNodeId === n.id ? 3 : 2;
             ctx.stroke();
-            ctx.shadowBlur = 0;
 
-            ctx.font = '20px sans-serif';
+            ctx.font = '18px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = '#fff';
@@ -359,97 +452,103 @@
 
             ctx.font = '10px system-ui, sans-serif';
             ctx.fillStyle = '#ccc';
-            const label = (n.content || 'узел').slice(0, 16) + ((n.content || '').length > 16 ? '…' : '');
+            const label = (n.text || 'узел').slice(0, 14) + ((n.text || '').length > 14 ? '…' : '');
             ctx.fillText(label, n.x, n.y + 18);
         }
     }
 
-    function drawTodo() {
+    function drawTodo(note) {
+        const items = note.todos && note.todos.length > 0 ? note.todos : 
+            note.content.split('\n').filter(l => l.trim()).map((l, i) => ({ id: i, text: l, done: false }));
         const startY = 60;
         let y = startY;
         ctx.fillStyle = '#eaeaea';
         ctx.font = '16px system-ui, sans-serif';
         ctx.textBaseline = 'top';
-        for (const n of state.nodes) {
-            ctx.fillStyle = '#c8c8d0';
-            ctx.fillText('○ ' + (n.content || 'пусто'), 30, y);
+        for (const item of items) {
+            ctx.fillStyle = item.done ? '#666' : '#c8c8d0';
+            ctx.fillText((item.done ? '✅' : '○') + ' ' + (item.text || 'пусто'), 30, y);
             y += 40;
             if (y > H - 40) break;
         }
-        if (state.nodes.length === 0) {
+        if (items.length === 0) {
             ctx.fillStyle = '#444';
-            ctx.fillText('Нет элементов. Переключись в Граф и добавь.', 30, startY);
+            ctx.fillText('Нет пунктов. Переключись в Текст и добавь.', 30, startY);
         }
     }
 
-    function drawText() {
+    function drawText(note) {
         const startY = 60;
-        let y = startY;
         ctx.fillStyle = '#d0d0da';
         ctx.font = '16px system-ui, sans-serif';
         ctx.textBaseline = 'top';
-        const text = state.nodes.map(n => n.content).filter(Boolean).join(' ');
-        ctx.fillText(text || '— пусто —', 24, y);
-        if (text.length === 0) {
+        const lines = note.content.split('\n');
+        let y = startY;
+        for (const line of lines) {
+            if (y > H - 40) break;
+            ctx.fillStyle = '#d0d0da';
+            ctx.fillText(line || ' ', 24, y);
+            y += 28;
+        }
+        if (!note.content) {
             ctx.fillStyle = '#444';
-            ctx.fillText('Нет текста. Добавь узлы в режиме Граф.', 24, startY);
+            ctx.fillText('Пустая заметка. Нажми ✏️ чтобы редактировать.', 24, startY);
         }
     }
 
-    // ----- BPMN -----
-    function applyBPMN() {
-        const report = document.getElementById('report-panel');
-        let html = '<b>🧾 Отчёт по BPMN:</b><br>';
-        state.nodes.forEach(n => delete n._bpmnStatus);
-
-        const hasStart = state.nodes.some(n => (n.content || '').toLowerCase().includes('начало') || (n.content || '').toLowerCase().includes('старт'));
-        if (!hasStart && state.nodes.length > 0) {
-            html += '<span class="warn">⚠️ Нет стартового события. Первый узел будет считаться стартовым.</span><br>';
-            state.nodes[0]._bpmnStatus = 'warn';
+    function drawMetaGraph() {
+        const meta = state.metaGraph;
+        // Рёбра между заметками
+        for (const e of meta.edges) {
+            const from = meta.nodes.find(n => n.id === e.from);
+            const to = meta.nodes.find(n => n.id === e.to);
+            if (!from || !to) continue;
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(to.x, to.y);
+            ctx.strokeStyle = '#ffaa44';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
 
-        const hasEnd = state.nodes.some(n => (n.content || '').toLowerCase().includes('конец') || (n.content || '').toLowerCase().includes('финиш'));
-        if (!hasEnd && state.nodes.length > 0) {
-            html += '<span class="warn">⚠️ Нет конечного события. Последний узел будет считаться конечным.</span><br>';
-            state.nodes[state.nodes.length-1]._bpmnStatus = 'warn';
+        // Узлы — заметки
+        for (const n of meta.nodes) {
+            const note = state.notes.find(no => no.id === n.noteId);
+            if (!note) continue;
+            const r = 30;
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+            ctx.fillStyle = '#2a2a35';
+            ctx.fill();
+            ctx.strokeStyle = '#5a6a8a';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.font = '14px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#eee';
+            const label = (note.title || 'заметка').slice(0, 12);
+            ctx.fillText(label, n.x, n.y);
         }
 
-        for (const n of state.nodes) {
-            const hasIn = state.edges.some(e => e.to === n.id);
-            const hasOut = state.edges.some(e => e.from === n.id);
-            if (!hasIn && !hasOut) {
-                html += `<span class="err">🔴 Узел "${n.content || 'без имени'}" (id:${n.id}) изолирован.</span><br>`;
-                n._bpmnStatus = 'err';
-            } else if (!hasIn && hasOut && n._bpmnStatus !== 'err' && n._bpmnStatus !== 'warn') {
-                html += `<span class="warn">⚠️ Узел "${n.content || 'без имени'}" не имеет входящих потоков. Будет стартовым.</span><br>`;
-                n._bpmnStatus = 'warn';
-            } else if (!hasOut && hasIn && n._bpmnStatus !== 'err' && n._bpmnStatus !== 'warn') {
-                html += `<span class="warn">⚠️ Узел "${n.content || 'без имени'}" не имеет исходящих потоков. Будет конечным.</span><br>`;
-                n._bpmnStatus = 'warn';
-            } else if (n._bpmnStatus !== 'err' && n._bpmnStatus !== 'warn') {
-                n._bpmnStatus = 'ok';
-            }
+        if (meta.nodes.length === 0) {
+            ctx.fillStyle = '#444';
+            ctx.font = '16px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Нет связей между заметками. Создайте заметки и свяжите их.', W/2, H/2);
         }
-
-        const okCount = state.nodes.filter(n => n._bpmnStatus === 'ok').length;
-        const warnCount = state.nodes.filter(n => n._bpmnStatus === 'warn').length;
-        const errCount = state.nodes.filter(n => n._bpmnStatus === 'err').length;
-        html += `<br><span class="ok">✅ Интерпретировано: ${okCount}</span>`;
-        if (warnCount) html += `, <span class="warn">⚠️ ${warnCount} с предупреждениями</span>`;
-        if (errCount) html += `, <span class="err">🔴 ${errCount} с ошибками</span>`;
-        html += '.';
-
-        report.innerHTML = html;
-        report.style.display = 'block';
-        state.bpmnActive = true;
-        render();
     }
 
-    function clearBPMN() {
-        document.getElementById('report-panel').style.display = 'none';
-        state.nodes.forEach(n => delete n._bpmnStatus);
-        state.bpmnActive = false;
-        render();
+    function drawEmptyState() {
+        ctx.fillStyle = '#444';
+        ctx.font = '16px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Создайте заметку или выберите существующую', W/2, H/2);
     }
 
     // ----- ВЗАИМОДЕЙСТВИЕ С ХОЛСТОМ -----
@@ -466,51 +565,52 @@
         };
     }
 
-    function getNodeAt(pos) {
-        return state.nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 30);
+    function getNodeAt(pos, nodes) {
+        return nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 30);
     }
 
     function onStart(e) {
         e.preventDefault();
-        if (state.viewMode !== 'graph') return;
         const pos = getPos(e);
-        const hit = getNodeAt(pos);
+        const note = getCurrentNote();
 
-        if (state.tool === 'select') {
+        if (state.viewMode === 'meta') {
+            // Внешний граф
+            const hit = getNodeAt(pos, state.metaGraph.nodes);
             if (hit) {
-                state.selectedNodeId = hit.id;
-                dragTarget = hit;
-                dragOffsetX = pos.x - hit.x;
-                dragOffsetY = pos.y - hit.y;
-                render();
-            } else {
-                state.selectedNodeId = null;
-                render();
+                const note = state.notes.find(n => n.id === hit.noteId);
+                if (note) {
+                    state.currentNoteId = note.id;
+                    state.viewMode = 'graph';
+                    render();
+                    updateSidebar();
+                    showToast('📂 Открыта: ' + note.title);
+                }
             }
-        } else if (state.tool === 'node') {
-            if (!hit) {
-                const id = state.nextId++;
-                state.nodes.push({ id, x: pos.x, y: pos.y, content: 'узел ' + id });
-                state.selectedNodeId = id;
+            return;
+        }
+
+        if (!note || !note.graph || !note.graph.enabled || state.viewMode !== 'graph') return;
+
+        const g = note.graph;
+        const hit = getNodeAt(pos, g.nodes);
+
+        if (hit) {
+            state.selectedNodeId = hit.id;
+            dragTarget = hit;
+            dragOffsetX = pos.x - hit.x;
+            dragOffsetY = pos.y - hit.y;
+            render();
+        } else {
+            state.selectedNodeId = null;
+            // Начинаем рисование связи
+            edgeStartNode = null;
+            // Проверяем, не начали ли тянуть от существующего узла
+            const near = g.nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 40);
+            if (near) {
+                edgeStartNode = near;
+                state.selectedNodeId = near.id;
                 render();
-                // Открываем редактирование
-                setTimeout(() => openEditor(id), 100);
-            }
-        } else if (state.tool === 'edge') {
-            if (hit) {
-                edgeStartNode = hit;
-                state.selectedNodeId = hit.id;
-                render();
-            }
-        } else if (state.tool === 'delete') {
-            if (hit) {
-                // Удаляем узел и все связи с ним
-                state.edges = state.edges.filter(e => e.from !== hit.id && e.to !== hit.id);
-                state.nodes = state.nodes.filter(n => n.id !== hit.id);
-                state.selectedNodeId = null;
-                if (state.bpmnActive) clearBPMN();
-                render();
-                showToast('🗑️ Узел удалён');
             }
         }
     }
@@ -519,14 +619,30 @@
         e.preventDefault();
         const pos = getPos(e);
 
-        if (state.tool === 'select' && dragTarget) {
+        if (state.viewMode === 'meta') {
+            // Перетаскивание узлов внешнего графа
+            const hit = state.metaGraph.nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 30);
+            if (hit && dragTarget) {
+                hit.x = Math.min(W - 10, Math.max(10, pos.x - dragOffsetX));
+                hit.y = Math.min(H - 10, Math.max(10, pos.y - dragOffsetY));
+                render();
+            }
+            return;
+        }
+
+        const note = getCurrentNote();
+        if (!note || !note.graph || !note.graph.enabled || state.viewMode !== 'graph') return;
+
+        const g = note.graph;
+
+        if (dragTarget) {
             dragTarget.x = Math.min(W - 10, Math.max(10, pos.x - dragOffsetX));
             dragTarget.y = Math.min(H - 10, Math.max(10, pos.y - dragOffsetY));
             render();
         }
 
         // Визуализация рисования связи
-        if (state.tool === 'edge' && edgeStartNode) {
+        if (edgeStartNode) {
             render();
             ctx.beginPath();
             ctx.moveTo(edgeStartNode.x, edgeStartNode.y);
@@ -542,19 +658,33 @@
     function onEnd(e) {
         e.preventDefault();
         const pos = getPos(e);
+        const note = getCurrentNote();
 
-        if (state.tool === 'edge' && edgeStartNode) {
-            const hit = getNodeAt(pos);
+        if (state.viewMode === 'meta') {
+            dragTarget = null;
+            return;
+        }
+
+        if (!note || !note.graph || !note.graph.enabled || state.viewMode !== 'graph') {
+            dragTarget = null;
+            edgeStartNode = null;
+            return;
+        }
+
+        const g = note.graph;
+
+        // Завершение рисования связи
+        if (edgeStartNode) {
+            const hit = getNodeAt(pos, g.nodes);
             if (hit && hit.id !== edgeStartNode.id) {
-                state.edges.push({
+                g.edges.push({
                     id: state.nextId++,
                     from: edgeStartNode.id,
                     to: hit.id,
                     type: 'logical'
                 });
-                if (state.bpmnActive) clearBPMN();
-                render();
                 showToast('🔗 Связь создана');
+                saveState();
             }
             edgeStartNode = null;
             state.selectedNodeId = null;
@@ -564,43 +694,24 @@
         dragTarget = null;
     }
 
-    // ----- РЕДАКТОР ТЕКСТА -----
-    function openEditor(id) {
-        const n = state.nodes.find(node => node.id === id);
-        if (!n) return;
-        document.getElementById('edit-textarea').value = n.content || '';
-        document.getElementById('edit-modal').classList.add('show');
-        document.getElementById('edit-textarea').focus();
-        // Сохраняем id для сохранения
-        document.getElementById('edit-modal').dataset.nodeId = id;
-    }
+    // ----- ДВОЙНОЙ ТАП ДЛЯ РЕДАКТИРОВАНИЯ УЗЛА -----
+    let lastTap = 0;
+    canvas.addEventListener('click', function(e) {
+        const note = getCurrentNote();
+        if (!note || !note.graph || !note.graph.enabled || state.viewMode !== 'graph') return;
 
-    function saveEditor() {
-        const id = parseInt(document.getElementById('edit-modal').dataset.nodeId);
-        const n = state.nodes.find(node => node.id === id);
-        if (n) {
-            const val = document.getElementById('edit-textarea').value.trim();
-            if (val) {
-                n.content = val;
-                if (state.bpmnActive) clearBPMN();
-                render();
+        const now = Date.now();
+        if (now - lastTap < 300) {
+            const pos = getPos(e);
+            const hit = getNodeAt(pos, note.graph.nodes);
+            if (hit) {
+                openEditor(hit.id);
             }
+            lastTap = 0;
+        } else {
+            lastTap = now;
         }
-        document.getElementById('edit-modal').classList.remove('show');
-    }
-
-    function cancelEditor() {
-        document.getElementById('edit-modal').classList.remove('show');
-    }
-
-    // ----- TOAST -----
-    function showToast(msg) {
-        const el = document.getElementById('toast');
-        el.textContent = msg;
-        el.style.display = 'block';
-        clearTimeout(el._timer);
-        el._timer = setTimeout(() => { el.style.display = 'none'; }, 1500);
-    }
+    });
 
     // ----- СОБЫТИЯ КАНВАСА -----
     canvas.addEventListener('touchstart', onStart, { passive: false });
@@ -613,170 +724,223 @@
     canvas.addEventListener('mouseup', onEnd);
     canvas.addEventListener('mouseleave', onEnd);
 
-    // Двойной тап для редактирования (в режиме select)
-    let lastTap = 0;
-    canvas.addEventListener('click', function(e) {
-        if (state.tool !== 'select') return;
-        const now = Date.now();
-        if (now - lastTap < 300) {
-            const pos = getPos(e);
-            const hit = getNodeAt(pos);
-            if (hit) {
-                openEditor(hit.id);
-            }
-            lastTap = 0;
-        } else {
-            lastTap = now;
-        }
-    });
-
-    // ----- МОДАЛКА -----
-    document.getElementById('edit-save').addEventListener('click', saveEditor);
-    document.getElementById('edit-cancel').addEventListener('click', cancelEditor);
-    document.getElementById('edit-textarea').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            saveEditor();
-        }
-        if (e.key === 'Escape') cancelEditor();
-    });
-
-    // ----- КНОПКИ ИНСТРУМЕНТОВ -----
-    function setTool(tool) {
-        state.tool = tool;
-        document.querySelectorAll('.group button.tool-active').forEach(b => b.classList.remove('tool-active'));
-        const btn = document.getElementById('tool-' + tool);
-        if (btn) btn.classList.add('tool-active');
-        state.selectedNodeId = null;
-        render();
+    // ----- РЕДАКТОР УЗЛА -----
+    function openEditor(nodeId) {
+        const note = getCurrentNote();
+        if (!note || !note.graph) return;
+        const node = note.graph.nodes.find(n => n.id === nodeId);
+        if (!node) return;
+        document.getElementById('edit-textarea').value = node.text || '';
+        document.getElementById('edit-modal').dataset.nodeId = nodeId;
+        document.getElementById('edit-modal').classList.add('show');
+        document.getElementById('edit-textarea').focus();
     }
 
-    document.getElementById('tool-select').addEventListener('click', () => setTool('select'));
-    document.getElementById('tool-node').addEventListener('click', () => setTool('node'));
-    document.getElementById('tool-edge').addEventListener('click', () => setTool('edge'));
-    document.getElementById('tool-delete').addEventListener('click', () => setTool('delete'));
+    function saveEditor() {
+        const note = getCurrentNote();
+        if (!note || !note.graph) return;
+        const nodeId = parseInt(document.getElementById('edit-modal').dataset.nodeId);
+        const node = note.graph.nodes.find(n => n.id === nodeId);
+        if (node) {
+            const val = document.getElementById('edit-textarea').value.trim();
+            if (val) {
+                node.text = val;
+                // Обновляем content заметки (синхронизация)
+                updateNoteContentFromGraph(note);
+                saveState();
+                render();
+                showToast('✅ Узел обновлён');
+            }
+        }
+        document.getElementById('edit-modal').classList.remove('show');
+    }
 
-    // ----- КНОПКИ РЕЖИМОВ -----
-    document.getElementById('btn-graph').addEventListener('click', function() {
-        state.viewMode = 'graph';
-        if (state.bpmnActive) clearBPMN();
-        document.querySelectorAll('#toolbar .group button').forEach(b => b.classList.remove('active'));
+    function cancelEditor() {
+        document.getElementById('edit-modal').classList.remove('show');
+    }
+
+    function updateNoteContentFromGraph(note) {
+        if (!note.graph || !note.graph.nodes) return;
+        // Собираем текст из узлов в порядке их создания или по координатам
+        const sorted = [...note.graph.nodes].sort((a, b) => a.y - b.y || a.x - b.x);
+        note.content = sorted.map(n => n.text).join(' ');
+    }
+
+    // ----- МОДАЛКА НОВОЙ ЗАМЕТКИ -----
+    function openNewNote() {
+        document.getElementById('new-textarea').value = '';
+        document.getElementById('new-modal').classList.add('show');
+        document.getElementById('new-textarea').focus();
+    }
+
+    function saveNewNote() {
+        const val = document.getElementById('new-textarea').value.trim();
+        if (!val) {
+            showToast('⚠️ Введите текст заметки');
+            return;
+        }
+        const title = val.split('\n')[0].slice(0, 30) || 'Заметка';
+        const note = {
+            id: state.nextId++,
+            title: title,
+            content: val,
+            graph: { enabled: false, nodes: [], edges: [] },
+            todos: []
+        };
+        state.notes.push(note);
+        state.currentNoteId = note.id;
+        // Строим граф автоматически
+        buildGraphFromText(note);
+        document.getElementById('new-modal').classList.remove('show');
+        updateSidebar();
+        render();
+        showToast('✅ Заметка создана: ' + title);
+        saveState();
+    }
+
+    function cancelNewNote() {
+        document.getElementById('new-modal').classList.remove('show');
+    }
+
+    // ----- САЙДБАР -----
+    function updateSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        sidebar.innerHTML = '';
+        for (const note of state.notes) {
+            const div = document.createElement('div');
+            div.className = 'note-item' + (note.id === state.currentNoteId ? ' active' : '');
+            div.textContent = note.title || 'Без названия';
+            const badge = document.createElement('span');
+            badge.className = 'badge';
+            badge.textContent = note.graph?.enabled ? '🌐' : '📄';
+            div.appendChild(badge);
+            div.addEventListener('click', () => {
+                state.currentNoteId = note.id;
+                state.viewMode = 'graph';
+                updateSidebar();
+                render();
+                showToast('📂 ' + note.title);
+            });
+            sidebar.appendChild(div);
+        }
+        if (state.notes.length === 0) {
+            const div = document.createElement('div');
+            div.className = 'note-item';
+            div.textContent = '➕ Создайте заметку';
+            div.style.color = '#555';
+            sidebar.appendChild(div);
+        }
+    }
+
+    // ----- TOAST -----
+    function showToast(msg) {
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.style.display = 'block';
+        clearTimeout(el._timer);
+        el._timer = setTimeout(() => { el.style.display = 'none'; }, 1500);
+    }
+
+    // ----- КНОПКИ -----
+    document.getElementById('btn-sidebar').addEventListener('click', function() {
+        const sidebar = document.getElementById('sidebar');
+        state.sidebarOpen = !state.sidebarOpen;
+        sidebar.style.display = state.sidebarOpen ? 'block' : 'none';
+    });
+
+    document.getElementById('btn-new').addEventListener('click', openNewNote);
+
+    document.getElementById('btn-text').addEventListener('click', function() {
+        state.viewMode = 'text';
+        document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         render();
     });
     document.getElementById('btn-todo').addEventListener('click', function() {
         state.viewMode = 'todo';
-        if (state.bpmnActive) clearBPMN();
-        document.querySelectorAll('#toolbar .group button').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         render();
     });
-    document.getElementById('btn-text').addEventListener('click', function() {
-        state.viewMode = 'text';
-        if (state.bpmnActive) clearBPMN();
-        document.querySelectorAll('#toolbar .group button').forEach(b => b.classList.remove('active'));
-        this.classList.add('active');
-        render();
-    });
-
-    document.getElementById('btn-bpmn').addEventListener('click', function() {
-        if (state.bpmnActive) {
-            clearBPMN();
-        } else {
-            applyBPMN();
-        }
-        render();
-    });
-
-    // ----- ЭКСПОРТ/ИМПОРТ -----
-    document.getElementById('btn-export').addEventListener('click', function() {
-        const data = {
-            nodes: state.nodes,
-            edges: state.edges,
-            nextId: state.nextId,
-            viewMode: state.viewMode
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'graph-' + new Date().toISOString().slice(0,10) + '.json';
-        a.click();
-        URL.revokeObjectURL(url);
-        showToast('💾 Экспортировано');
-    });
-
-    document.getElementById('btn-import').addEventListener('click', function() {
-        document.getElementById('file-input').click();
-    });
-    document.getElementById('file-input').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function(ev) {
-            try {
-                const data = JSON.parse(ev.target.result);
-                if (data.nodes && data.edges !== undefined) {
-                    state.nodes = data.nodes || [];
-                    state.edges = data.edges || [];
-                    state.nextId = data.nextId || 1;
-                    if (data.viewMode) state.viewMode = data.viewMode;
-                    if (state.bpmnActive) clearBPMN();
-                    // Обновляем активные кнопки
-                    document.querySelectorAll('#toolbar .group button').forEach(b => b.classList.remove('active'));
-                    if (state.viewMode === 'graph') document.getElementById('btn-graph').classList.add('active');
-                    else if (state.viewMode === 'todo') document.getElementById('btn-todo').classList.add('active');
-                    else if (state.viewMode === 'text') document.getElementById('btn-text').classList.add('active');
-                    render();
-                    showToast('📂 Импортировано');
-                }
-            } catch(err) { alert('Ошибка при загрузке JSON'); }
-        };
-        reader.readAsText(file);
-        this.value = '';
-    });
-
-    // ----- ДЕМО-ЗАМЕТКА (если нет сохранённых данных) -----
-    function initDemo() {
-        if (loadState()) {
-            // Уже есть сохранённые данные
-            render();
-            return;
-        }
-
-        // Создаём демо-граф
-        state.nodes = [
-            { id: state.nextId++, x: 120, y: 160, content: 'Начало: заказ' },
-            { id: state.nextId++, x: 340, y: 200, content: 'Оплата счёта' },
-            { id: state.nextId++, x: 220, y: 380, content: 'Решение: проверка' },
-            { id: state.nextId++, x: 440, y: 400, content: 'Доставка' },
-            { id: state.nextId++, x: 180, y: 540, content: 'Конец: готово' }
-        ];
-        state.edges = [
-            { id: state.nextId++, from: 1, to: 2, type: 'logical' },
-            { id: state.nextId++, from: 2, to: 3, type: 'logical' },
-            { id: state.nextId++, from: 3, to: 4, type: 'logical' },
-            { id: state.nextId++, from: 4, to: 5, type: 'logical' }
-        ];
+    document.getElementById('btn-graph').addEventListener('click', function() {
         state.viewMode = 'graph';
-        state.hasDemo = true;
-        saveState();
+        document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
         render();
-        showToast('📖 Демо-граф загружен. Редактируй!');
+    });
+    document.getElementById('btn-meta').addEventListener('click', function() {
+        state.viewMode = 'meta';
+        // Автоматически строим внешний граф, если его нет
+        if (state.metaGraph.nodes.length === 0 && state.notes.length > 1) {
+            buildMetaGraph();
+        }
+        document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        render();
+    });
+
+    function buildMetaGraph() {
+        const nodes = state.notes.map((note, i) => ({
+            id: state.nextId++,
+            noteId: note.id,
+            x: 100 + (i % 3) * 180 + Math.random() * 30,
+            y: 100 + Math.floor(i / 3) * 180 + Math.random() * 30
+        }));
+        const edges = [];
+        for (let i = 0; i < nodes.length - 1; i++) {
+            edges.push({
+                id: state.nextId++,
+                from: nodes[i].id,
+                to: nodes[i+1].id,
+                type: 'relates'
+            });
+        }
+        state.metaGraph = { nodes, edges };
+        saveState();
     }
+
+    // ----- МОДАЛКИ -----
+    document.getElementById('edit-save').addEventListener('click', saveEditor);
+    document.getElementById('edit-cancel').addEventListener('click', cancelEditor);
+    document.getElementById('edit-textarea').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEditor(); }
+        if (e.key === 'Escape') cancelEditor();
+    });
+
+    document.getElementById('new-save').addEventListener('click', saveNewNote);
+    document.getElementById('new-cancel').addEventListener('click', cancelNewNote);
+    document.getElementById('new-textarea').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && e.ctrlKey) { saveNewNote(); }
+        if (e.key === 'Escape') cancelNewNote();
+    });
 
     // ----- СТАРТ -----
     window.addEventListener('resize', resize);
+    
+    if (!loadState()) {
+        initDemoNotes();
+    }
+    
+    // Открываем первую заметку, если ни одна не выбрана
+    if (!state.currentNoteId && state.notes.length > 0) {
+        state.currentNoteId = state.notes[0].id;
+    }
+
+    // Включаем граф для текущей заметки, если ещё не включён
+    const current = getCurrentNote();
+    if (current && !current.graph?.enabled) {
+        buildGraphFromText(current);
+    }
+
+    updateSidebar();
     resize();
-    initDemo();
-
-    // Активируем select-инструмент по умолчанию
-    document.getElementById('tool-select').classList.add('tool-active');
     document.getElementById('btn-graph').classList.add('active');
+    document.getElementById('sidebar').style.display = state.sidebarOpen ? 'block' : 'none';
 
-    console.log('✅ Graph Editor готов!');
-    console.log('🛠️ Инструменты: Выбрать (🖱️), Узел (✏️), Связь (🔗), Удалить (🗑️)');
-    console.log('💾 Данные автоматически сохраняются в localStorage');
+    console.log('✅ Graph v2 готов!');
+    console.log('📝 Заметки -> Граф -> Внешний граф');
+    console.log('🔄 Двойной тап по узлу — редактировать');
+    console.log('🔗 Тяни от узла к узлу — создать связь');
 })();
 </script>
 </body>
