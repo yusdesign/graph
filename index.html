@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Graph · живой прототип</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+        body { background: #0b0b0e; display: flex; flex-direction: column; height: 100vh; font-family: system-ui, sans-serif; overflow: hidden; }
+        #toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            background: #1a1a1f;
+            border-bottom: 1px solid #2a2a30;
+            flex-shrink: 0;
+        }
+        #toolbar button {
+            background: #2c2c35;
+            border: none;
+            color: #eee;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.15s;
+            touch-action: manipulation;
+            white-space: nowrap;
+        }
+        #toolbar button:active { background: #3d3d4a; transform: scale(0.95); }
+        #toolbar button.active { background: #5a4b8a; color: #fff; }
+        #toolbar .spacer { flex: 1; }
+        #mode-indicator { color: #888; font-size: 13px; margin-left: 8px; }
+        #canvas-wrap {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #121216;
+            touch-action: none;
+        }
+        #canvas-wrap canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+        #status {
+            padding: 8px 16px;
+            background: #0f0f12;
+            border-top: 1px solid #1e1e24;
+            color: #555;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        #status span { color: #7a7a8a; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div id="toolbar">
+    <button id="btn-graph" class="active">🌐 Граф</button>
+    <button id="btn-todo">☑️ Список</button>
+    <button id="btn-text">📄 Текст</button>
+    <span class="spacer"></span>
+    <button id="btn-export">💾 JSON</button>
+    <button id="btn-import">📂 JSON</button>
+    <input type="file" id="file-input" accept=".json" style="display:none">
+</div>
+
+<div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+</div>
+
+<div id="status">
+    <span id="node-count">Узлов: 0</span>
+    <span id="edge-count">Связей: 0</span>
+    <span id="view-label">режим: граф</span>
+</div>
+
+<script>
+    (function(){
+        // ----- ХРАНИЛИЩЕ ДАННЫХ -----
+        let nodes = [];
+        let edges = [];
+        let nextId = 1;
+        let viewMode = 'graph'; // 'graph' | 'todo' | 'text'
+
+        // ----- КАНВАС И КООРДИНАТЫ -----
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let W, H;
+
+        function resize() {
+            const wrap = document.getElementById('canvas-wrap');
+            W = wrap.clientWidth;
+            H = wrap.clientHeight;
+            canvas.width = W * window.devicePixelRatio;
+            canvas.height = H * window.devicePixelRatio;
+            canvas.style.width = W + 'px';
+            canvas.style.height = H + 'px';
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            render();
+        }
+
+        // ----- РЕНДЕРИНГ -----
+        function render() {
+            ctx.clearRect(0, 0, W, H);
+            ctx.fillStyle = '#121216';
+            ctx.fillRect(0, 0, W, H);
+
+            if (viewMode === 'graph') {
+                drawGraph();
+            } else if (viewMode === 'todo') {
+                drawTodo();
+            } else if (viewMode === 'text') {
+                drawText();
+            }
+
+            // статус
+            document.getElementById('node-count').textContent = 'Узлов: ' + nodes.length;
+            document.getElementById('edge-count').textContent = 'Связей: ' + edges.length;
+            document.getElementById('view-label').textContent = 'режим: ' + viewMode;
+        }
+
+        function drawGraph() {
+            // Рисуем рёбра
+            ctx.lineWidth = 2;
+            for (const e of edges) {
+                const from = nodes.find(n => n.id === e.from);
+                const to = nodes.find(n => n.id === e.to);
+                if (!from || !to) continue;
+                ctx.beginPath();
+                ctx.moveTo(from.x, from.y);
+                ctx.lineTo(to.x, to.y);
+                if (e.type === 'mystery') {
+                    ctx.setLineDash([6, 6]);
+                    ctx.strokeStyle = '#aa88ff';
+                } else {
+                    ctx.setLineDash([]);
+                    ctx.strokeStyle = '#5588dd';
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Рисуем узлы
+            for (const n of nodes) {
+                const r = 24;
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+                ctx.fillStyle = '#2a2a35';
+                ctx.fill();
+                ctx.strokeStyle = '#5a6a8a';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                ctx.fillStyle = '#eee';
+                ctx.font = '13px system-ui, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const label = n.label.length > 14 ? n.label.slice(0, 12) + '…' : n.label;
+                ctx.fillText(label || 'узел', n.x, n.y);
+            }
+        }
+
+        function drawTodo() {
+            const startY = 60;
+            let y = startY;
+            ctx.fillStyle = '#eaeaea';
+            ctx.font = '16px system-ui, sans-serif';
+            ctx.textBaseline = 'top';
+            for (const n of nodes) {
+                ctx.fillStyle = '#c8c8d0';
+                ctx.fillText('○ ' + (n.label || 'пусто'), 30, y);
+                y += 40;
+                if (y > H - 40) break;
+            }
+            if (nodes.length === 0) {
+                ctx.fillStyle = '#444';
+                ctx.fillText('Нет элементов. Переключись в Граф и добавь.', 30, startY);
+            }
+        }
+
+        function drawText() {
+            const startY = 60;
+            let y = startY;
+            ctx.fillStyle = '#d0d0da';
+            ctx.font = '16px system-ui, sans-serif';
+            ctx.textBaseline = 'top';
+            const text = nodes.map(n => n.label).filter(Boolean).join(' ');
+            ctx.fillText(text || '— пусто —', 24, y);
+            if (text.length === 0) {
+                ctx.fillStyle = '#444';
+                ctx.fillText('Нет текста. Добавь узлы в режиме Граф.', 24, startY);
+            }
+        }
+
+        // ----- ВЗАИМОДЕЙСТВИЕ (пальцем) -----
+        let dragTarget = null;
+        let dragOffsetX = 0, dragOffsetY = 0;
+        let isDrawing = false;
+        let drawStart = null;
+
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const t = e.touches ? e.touches[0] : e;
+            return {
+                x: (t.clientX - rect.left) * (W / rect.width),
+                y: (t.clientY - rect.top) * (H / rect.height)
+            };
+        }
+
+        function onStart(e) {
+            e.preventDefault();
+            if (viewMode !== 'graph') return;
+            const pos = getPos(e);
+            // Проверяем попал ли в узел
+            const hit = nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 28);
+            if (hit) {
+                dragTarget = hit;
+                dragOffsetX = pos.x - hit.x;
+                dragOffsetY = pos.y - hit.y;
+                isDrawing = false;
+                return;
+            }
+            // Начинаем рисование линии
+            isDrawing = true;
+            drawStart = { x: pos.x, y: pos.y };
+        }
+
+        function onMove(e) {
+            e.preventDefault();
+            if (!dragTarget && !isDrawing) return;
+            const pos = getPos(e);
+            if (dragTarget) {
+                dragTarget.x = Math.min(W - 10, Math.max(10, pos.x - dragOffsetX));
+                dragTarget.y = Math.min(H - 10, Math.max(10, pos.y - dragOffsetY));
+                render();
+            }
+            if (isDrawing && drawStart) {
+                // временный рендер линии к пальцу
+                render();
+                ctx.beginPath();
+                ctx.moveTo(drawStart.x, drawStart.y);
+                ctx.lineTo(pos.x, pos.y);
+                ctx.strokeStyle = '#88aadd88';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
+        function onEnd(e) {
+            e.preventDefault();
+            if (isDrawing && drawStart) {
+                const pos = getPos(e);
+                // Проверяем, отпустили ли на узле
+                const hit = nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 28);
+                if (hit && drawStart) {
+                    const fromNode = nodes.find(n => Math.hypot(n.x - drawStart.x, n.y - drawStart.y) < 28);
+                    if (fromNode && fromNode.id !== hit.id) {
+                        edges.push({
+                            id: nextId++,
+                            from: fromNode.id,
+                            to: hit.id,
+                            type: 'logical'
+                        });
+                    }
+                }
+                render();
+                isDrawing = false;
+                drawStart = null;
+            }
+            dragTarget = null;
+        }
+
+        // ----- ДОБАВЛЕНИЕ УЗЛА (двойной тап или долгий) -----
+        function onDoubleTap(e) {
+            if (viewMode !== 'graph') return;
+            const pos = getPos(e);
+            nodes.push({
+                id: nextId++,
+                x: Math.min(W - 20, Math.max(20, pos.x)),
+                y: Math.min(H - 20, Math.max(20, pos.y)),
+                label: 'узел ' + (nodes.length + 1)
+            });
+            render();
+        }
+
+        // ----- СОБЫТИЯ -----
+        canvas.addEventListener('touchstart', onStart, { passive: false });
+        canvas.addEventListener('touchmove', onMove, { passive: false });
+        canvas.addEventListener('touchend', onEnd, { passive: false });
+        canvas.addEventListener('touchcancel', onEnd, { passive: false });
+
+        canvas.addEventListener('mousedown', onStart);
+        canvas.addEventListener('mousemove', onMove);
+        canvas.addEventListener('mouseup', onEnd);
+        canvas.addEventListener('mouseleave', onEnd);
+
+        let lastTap = 0;
+        canvas.addEventListener('click', function(e) {
+            const now = Date.now();
+            if (now - lastTap < 300) {
+                onDoubleTap(e);
+                lastTap = 0;
+            } else {
+                lastTap = now;
+            }
+        });
+
+        window.addEventListener('resize', resize);
+
+        // ----- КНОПКИ РЕЖИМОВ -----
+        document.getElementById('btn-graph').addEventListener('click', function() {
+            viewMode = 'graph';
+            document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            render();
+        });
+        document.getElementById('btn-todo').addEventListener('click', function() {
+            viewMode = 'todo';
+            document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            render();
+        });
+        document.getElementById('btn-text').addEventListener('click', function() {
+            viewMode = 'text';
+            document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            render();
+        });
+
+        // ----- ЭКСПОРТ JSON -----
+        document.getElementById('btn-export').addEventListener('click', function() {
+            const data = { nodes, edges, viewMode };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'graph-' + new Date().toISOString().slice(0,10) + '.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        // ----- ИМПОРТ JSON -----
+        document.getElementById('btn-import').addEventListener('click', function() {
+            document.getElementById('file-input').click();
+        });
+        document.getElementById('file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                try {
+                    const data = JSON.parse(ev.target.result);
+                    if (data.nodes && data.edges !== undefined) {
+                        nodes = data.nodes || [];
+                        edges = data.edges || [];
+                        if (data.viewMode) viewMode = data.viewMode;
+                        // обновим кнопки
+                        document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
+                        if (viewMode === 'graph') document.getElementById('btn-graph').classList.add('active');
+                        else if (viewMode === 'todo') document.getElementById('btn-todo').classList.add('active');
+                        else if (viewMode === 'text') document.getElementById('btn-text').classList.add('active');
+                        render();
+                    }
+                } catch(err) { alert('Ошибка при загрузке JSON'); }
+            };
+            reader.readAsText(file);
+            this.value = '';
+        });
+
+        // ----- СТАРТ -----
+        // Создаём пару демо-узлов, чтобы было с чем играть
+        nodes.push({ id: nextId++, x: 140, y: 200, label: 'Идея' });
+        nodes.push({ id: nextId++, x: 340, y: 380, label: 'Заметка' });
+        nodes.push({ id: nextId++, x: 120, y: 450, label: 'Связь' });
+        edges.push({ id: nextId++, from: 1, to: 2, type: 'logical' });
+        edges.push({ id: nextId++, from: 1, to: 3, type: 'mystery' });
+
+        resize();
+        // активируем граф-режим по умолчанию
+        document.getElementById('btn-graph').classList.add('active');
+
+        console.log('✅ Graph Prototype готов!');
+        console.log('📌 Двойной тап — создать узел');
+        console.log('📌 Перетащи узел пальцем');
+        console.log('📌 Тяни от узла к узлу — создать связь');
+        console.log('📌 Переключай режимы: Граф / Список / Текст');
+    })();
+</script>
+</body>
+</html>
