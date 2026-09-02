@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Graph — живой граф</title>
+    <title>Graph — редактор графов</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
         body {
@@ -18,33 +18,44 @@
         #toolbar {
             display: flex;
             align-items: center;
-            gap: 6px;
-            padding: 10px 12px;
+            gap: 4px;
+            padding: 8px 10px;
             background: #1a1a1f;
             border-bottom: 1px solid #2a2a30;
             flex-shrink: 0;
             flex-wrap: wrap;
         }
+        #toolbar .group {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            margin-right: 6px;
+            padding-right: 6px;
+            border-right: 1px solid #2a2a30;
+        }
+        #toolbar .group:last-child { border-right: none; }
         #toolbar button {
             background: #2c2c35;
             border: none;
             color: #ddd;
-            padding: 6px 14px;
-            border-radius: 18px;
-            font-size: 13px;
+            padding: 5px 12px;
+            border-radius: 14px;
+            font-size: 12px;
             font-weight: 500;
             cursor: pointer;
             touch-action: manipulation;
             white-space: nowrap;
+            transition: 0.1s;
         }
         #toolbar button:active { background: #3d3d4a; transform: scale(0.95); }
         #toolbar button.active { background: #5a4b8a; color: #fff; }
-        .spacer { flex: 1; }
+        #toolbar button.tool-active { background: #3a5a8a; color: #fff; }
+        #toolbar .spacer { flex: 1; }
         #status {
-            padding: 6px 14px;
+            padding: 4px 14px;
             background: #0f0f12;
             border-top: 1px solid #1a1a20;
-            font-size: 12px;
+            font-size: 11px;
             color: #888;
             display: flex;
             justify-content: space-between;
@@ -66,10 +77,10 @@
         #report-panel {
             background: #14141a;
             border-top: 1px solid #2a2a30;
-            padding: 10px 14px;
-            max-height: 140px;
+            padding: 8px 14px;
+            max-height: 120px;
             overflow-y: auto;
-            font-size: 13px;
+            font-size: 12px;
             flex-shrink: 0;
             display: none;
             line-height: 1.5;
@@ -80,7 +91,7 @@
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0,0,0,0.7);
             display: none;
             justify-content: center;
             align-items: center;
@@ -93,7 +104,6 @@
             border-radius: 16px;
             width: 90%;
             max-width: 360px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
         }
         .modal-box textarea {
             width: 100%;
@@ -121,19 +131,45 @@
         }
         .modal-box .actions .save { background: #5a4b8a; color: #fff; }
         .modal-box .actions .cancel { background: #2a2a30; color: #aaa; }
+        #toast {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1a1a2a;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            color: #ddd;
+            border: 1px solid #3a3a4a;
+            display: none;
+            z-index: 50;
+        }
     </style>
 </head>
 <body>
 
 <div id="toolbar">
-    <button id="btn-graph" class="active">🌐 Граф</button>
-    <button id="btn-todo">☑️ Список</button>
-    <button id="btn-text">📄 Текст</button>
-    <button id="btn-bpmn">🔁 BPMN</button>
+    <div class="group">
+        <button id="tool-select" class="tool-active">🖱️</button>
+        <button id="tool-node">✏️</button>
+        <button id="tool-edge">🔗</button>
+        <button id="tool-delete">🗑️</button>
+    </div>
+    <div class="group">
+        <button id="btn-graph" class="active">🌐</button>
+        <button id="btn-todo">☑️</button>
+        <button id="btn-text">📄</button>
+    </div>
+    <div class="group">
+        <button id="btn-bpmn">🧩BPMN</button>
+    </div>
     <span class="spacer"></span>
-    <button id="btn-export">💾 JSON</button>
-    <button id="btn-import">📂 JSON</button>
-    <input type="file" id="file-input" accept=".json" style="display:none">
+    <div class="group">
+        <button id="btn-export">💾</button>
+        <button id="btn-import">📂</button>
+        <input type="file" id="file-input" accept=".json" style="display:none">
+    </div>
 </div>
 
 <div id="canvas-wrap">
@@ -146,7 +182,10 @@
     <span id="node-count">Узлов: 0</span>
     <span id="edge-count">Связей: 0</span>
     <span id="view-label">режим: граф</span>
+    <span id="tool-label">инструмент: выбрать</span>
 </div>
+
+<div id="toast"></div>
 
 <!-- Модалка редактирования узла -->
 <div class="modal-overlay" id="edit-modal">
@@ -161,13 +200,46 @@
 
 <script>
 (function(){
-    // ----- ДАННЫЕ -----
-    let nodes = [];
-    let edges = [];
-    let nextId = 1;
-    let viewMode = 'graph'; // 'graph' | 'todo' | 'text'
-    let bpmnActive = false;
-    let editingNodeId = null;
+    // ----- СОСТОЯНИЕ -----
+    let state = {
+        nodes: [],
+        edges: [],
+        nextId: 1,
+        viewMode: 'graph',
+        tool: 'select', // 'select' | 'node' | 'edge' | 'delete'
+        selectedNodeId: null,
+        bpmnActive: false,
+        hasDemo: false
+    };
+
+    // Восстанавливаем из localStorage
+    function loadState() {
+        try {
+            const saved = localStorage.getItem('graph_state');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                state.nodes = parsed.nodes || [];
+                state.edges = parsed.edges || [];
+                state.nextId = parsed.nextId || 1;
+                state.viewMode = parsed.viewMode || 'graph';
+                state.bpmnActive = parsed.bpmnActive || false;
+                state.hasDemo = true;
+                return true;
+            }
+        } catch(e) {}
+        return false;
+    }
+
+    function saveState() {
+        const data = {
+            nodes: state.nodes,
+            edges: state.edges,
+            nextId: state.nextId,
+            viewMode: state.viewMode,
+            bpmnActive: state.bpmnActive
+        };
+        localStorage.setItem('graph_state', JSON.stringify(data));
+    }
 
     // ----- КАНВАС -----
     const canvas = document.getElementById('canvas');
@@ -217,21 +289,24 @@
         ctx.fillStyle = '#121216';
         ctx.fillRect(0, 0, W, H);
 
-        if (viewMode === 'graph') drawGraph();
-        else if (viewMode === 'todo') drawTodo();
-        else if (viewMode === 'text') drawText();
+        if (state.viewMode === 'graph') drawGraph();
+        else if (state.viewMode === 'todo') drawTodo();
+        else if (state.viewMode === 'text') drawText();
 
-        document.getElementById('node-count').textContent = 'Узлов: ' + nodes.length;
-        document.getElementById('edge-count').textContent = 'Связей: ' + edges.length;
-        document.getElementById('view-label').textContent = 'режим: ' + viewMode + (bpmnActive ? ' (BPMN)' : '');
+        document.getElementById('node-count').textContent = 'Узлов: ' + state.nodes.length;
+        document.getElementById('edge-count').textContent = 'Связей: ' + state.edges.length;
+        document.getElementById('view-label').textContent = 'режим: ' + state.viewMode + (state.bpmnActive ? ' (BPMN)' : '');
+        document.getElementById('tool-label').textContent = 'инструмент: ' + state.tool;
+
+        saveState();
     }
 
     function drawGraph() {
         // Рёбра
         ctx.lineWidth = 2;
-        for (const e of edges) {
-            const from = nodes.find(n => n.id === e.from);
-            const to = nodes.find(n => n.id === e.to);
+        for (const e of state.edges) {
+            const from = state.nodes.find(n => n.id === e.from);
+            const to = state.nodes.find(n => n.id === e.to);
             if (!from || !to) continue;
             ctx.beginPath();
             ctx.moveTo(from.x, from.y);
@@ -241,44 +316,51 @@
                 ctx.strokeStyle = '#aa88ff';
             } else {
                 ctx.setLineDash([]);
-                ctx.strokeStyle = bpmnActive ? '#ffaa44' : '#5588dd';
+                ctx.strokeStyle = state.bpmnActive ? '#ffaa44' : '#5588dd';
             }
             ctx.stroke();
             ctx.setLineDash([]);
         }
 
         // Узлы
-        for (const n of nodes) {
-            const r = 26;
+        for (const n of state.nodes) {
+            const r = 28;
             const emoji = getEmoji(n.content);
             ctx.beginPath();
             ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
 
             let fill = '#2a2a35';
             let stroke = '#5a6a8a';
-            if (bpmnActive) {
+            if (state.bpmnActive) {
                 if (n._bpmnStatus === 'ok') { fill = '#1a3a1a'; stroke = '#4caf50'; }
                 else if (n._bpmnStatus === 'warn') { fill = '#3a3a1a'; stroke = '#ffeb3b'; }
                 else if (n._bpmnStatus === 'err') { fill = '#3a1a1a'; stroke = '#f44336'; }
+            }
+            // Подсветка выбранного
+            if (state.selectedNodeId === n.id) {
+                stroke = '#88ddff';
+                ctx.shadowColor = '#88ddff';
+                ctx.shadowBlur = 15;
+            } else {
+                ctx.shadowBlur = 0;
             }
             ctx.fillStyle = fill;
             ctx.fill();
             ctx.strokeStyle = stroke;
             ctx.lineWidth = 2.5;
             ctx.stroke();
+            ctx.shadowBlur = 0;
 
-            // Эмодзи
-            ctx.font = '18px sans-serif';
+            ctx.font = '20px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = '#fff';
-            ctx.fillText(emoji, n.x, n.y - 12);
+            ctx.fillText(emoji, n.x, n.y - 14);
 
-            // Текст (обрезанный)
             ctx.font = '10px system-ui, sans-serif';
             ctx.fillStyle = '#ccc';
-            const label = (n.content || 'узел').slice(0, 14) + ((n.content || '').length > 14 ? '…' : '');
-            ctx.fillText(label, n.x, n.y + 16);
+            const label = (n.content || 'узел').slice(0, 16) + ((n.content || '').length > 16 ? '…' : '');
+            ctx.fillText(label, n.x, n.y + 18);
         }
     }
 
@@ -288,13 +370,13 @@
         ctx.fillStyle = '#eaeaea';
         ctx.font = '16px system-ui, sans-serif';
         ctx.textBaseline = 'top';
-        for (const n of nodes) {
+        for (const n of state.nodes) {
             ctx.fillStyle = '#c8c8d0';
             ctx.fillText('○ ' + (n.content || 'пусто'), 30, y);
             y += 40;
             if (y > H - 40) break;
         }
-        if (nodes.length === 0) {
+        if (state.nodes.length === 0) {
             ctx.fillStyle = '#444';
             ctx.fillText('Нет элементов. Переключись в Граф и добавь.', 30, startY);
         }
@@ -306,7 +388,7 @@
         ctx.fillStyle = '#d0d0da';
         ctx.font = '16px system-ui, sans-serif';
         ctx.textBaseline = 'top';
-        const text = nodes.map(n => n.content).filter(Boolean).join(' ');
+        const text = state.nodes.map(n => n.content).filter(Boolean).join(' ');
         ctx.fillText(text || '— пусто —', 24, y);
         if (text.length === 0) {
             ctx.fillStyle = '#444';
@@ -314,77 +396,66 @@
         }
     }
 
-    // ----- BPMN "ЧЕСТНАЯ ПРИМЕРКА" -----
+    // ----- BPMN -----
     function applyBPMN() {
         const report = document.getElementById('report-panel');
-        let html = '<b>🧾 Отчёт по BPMN-интерпретации:</b><br>';
+        let html = '<b>🧾 Отчёт по BPMN:</b><br>';
+        state.nodes.forEach(n => delete n._bpmnStatus);
 
-        // Сбрасываем старые статусы
-        nodes.forEach(n => delete n._bpmnStatus);
-
-        // 1. Проверка старта
-        const hasStart = nodes.some(n => (n.content || '').toLowerCase().includes('начало') || (n.content || '').toLowerCase().includes('старт'));
-        if (!hasStart && nodes.length > 0) {
-            html += '<span class="warn">⚠️ Нет явного стартового события. Первый узел будет считаться стартовым.</span><br>';
-            nodes[0]._bpmnStatus = 'warn';
+        const hasStart = state.nodes.some(n => (n.content || '').toLowerCase().includes('начало') || (n.content || '').toLowerCase().includes('старт'));
+        if (!hasStart && state.nodes.length > 0) {
+            html += '<span class="warn">⚠️ Нет стартового события. Первый узел будет считаться стартовым.</span><br>';
+            state.nodes[0]._bpmnStatus = 'warn';
         }
 
-        // 2. Проверка конца
-        const hasEnd = nodes.some(n => (n.content || '').toLowerCase().includes('конец') || (n.content || '').toLowerCase().includes('финиш'));
-        if (!hasEnd && nodes.length > 0) {
-            html += '<span class="warn">⚠️ Нет явного конечного события. Последний узел будет считаться конечным.</span><br>';
-            nodes[nodes.length-1]._bpmnStatus = 'warn';
+        const hasEnd = state.nodes.some(n => (n.content || '').toLowerCase().includes('конец') || (n.content || '').toLowerCase().includes('финиш'));
+        if (!hasEnd && state.nodes.length > 0) {
+            html += '<span class="warn">⚠️ Нет конечного события. Последний узел будет считаться конечным.</span><br>';
+            state.nodes[state.nodes.length-1]._bpmnStatus = 'warn';
         }
 
-        // 3. Висячие узлы
-        for (const n of nodes) {
-            const hasIn = edges.some(e => e.to === n.id);
-            const hasOut = edges.some(e => e.from === n.id);
+        for (const n of state.nodes) {
+            const hasIn = state.edges.some(e => e.to === n.id);
+            const hasOut = state.edges.some(e => e.from === n.id);
             if (!hasIn && !hasOut) {
-                html += `<span class="err">🔴 Узел "${n.content || 'без имени'}" (id:${n.id}) полностью изолирован. Не может быть интерпретирован в BPMN.</span><br>`;
+                html += `<span class="err">🔴 Узел "${n.content || 'без имени'}" (id:${n.id}) изолирован.</span><br>`;
                 n._bpmnStatus = 'err';
-            } else if (!hasIn && hasOut && n._bpmnStatus !== 'err') {
-                if (n._bpmnStatus !== 'warn') {
-                    html += `<span class="warn">⚠️ Узел "${n.content || 'без имени'}" (id:${n.id}) не имеет входящих потоков. Будет считаться стартовым.</span><br>`;
-                    n._bpmnStatus = 'warn';
-                }
-            } else if (!hasOut && hasIn && n._bpmnStatus !== 'err') {
-                if (n._bpmnStatus !== 'warn') {
-                    html += `<span class="warn">⚠️ Узел "${n.content || 'без имени'}" (id:${n.id}) не имеет исходящих потоков. Будет считаться конечным.</span><br>`;
-                    n._bpmnStatus = 'warn';
-                }
+            } else if (!hasIn && hasOut && n._bpmnStatus !== 'err' && n._bpmnStatus !== 'warn') {
+                html += `<span class="warn">⚠️ Узел "${n.content || 'без имени'}" не имеет входящих потоков. Будет стартовым.</span><br>`;
+                n._bpmnStatus = 'warn';
+            } else if (!hasOut && hasIn && n._bpmnStatus !== 'err' && n._bpmnStatus !== 'warn') {
+                html += `<span class="warn">⚠️ Узел "${n.content || 'без имени'}" не имеет исходящих потоков. Будет конечным.</span><br>`;
+                n._bpmnStatus = 'warn';
             } else if (n._bpmnStatus !== 'err' && n._bpmnStatus !== 'warn') {
                 n._bpmnStatus = 'ok';
             }
         }
 
-        // Итог
-        const okCount = nodes.filter(n => n._bpmnStatus === 'ok').length;
-        const warnCount = nodes.filter(n => n._bpmnStatus === 'warn').length;
-        const errCount = nodes.filter(n => n._bpmnStatus === 'err').length;
-        html += `<br><span class="ok">✅ Интерпретировано: ${okCount} узлов</span>`;
+        const okCount = state.nodes.filter(n => n._bpmnStatus === 'ok').length;
+        const warnCount = state.nodes.filter(n => n._bpmnStatus === 'warn').length;
+        const errCount = state.nodes.filter(n => n._bpmnStatus === 'err').length;
+        html += `<br><span class="ok">✅ Интерпретировано: ${okCount}</span>`;
         if (warnCount) html += `, <span class="warn">⚠️ ${warnCount} с предупреждениями</span>`;
         if (errCount) html += `, <span class="err">🔴 ${errCount} с ошибками</span>`;
         html += '.';
 
         report.innerHTML = html;
         report.style.display = 'block';
-        bpmnActive = true;
+        state.bpmnActive = true;
         render();
     }
 
     function clearBPMN() {
         document.getElementById('report-panel').style.display = 'none';
-        nodes.forEach(n => delete n._bpmnStatus);
-        bpmnActive = false;
+        state.nodes.forEach(n => delete n._bpmnStatus);
+        state.bpmnActive = false;
         render();
     }
 
-    // ----- ВЗАИМОДЕЙСТВИЕ (пальцем) -----
+    // ----- ВЗАИМОДЕЙСТВИЕ С ХОЛСТОМ -----
     let dragTarget = null;
     let dragOffsetX = 0, dragOffsetY = 0;
-    let isDrawing = false;
-    let drawStart = null;
+    let edgeStartNode = null;
 
     function getPos(e) {
         const rect = canvas.getBoundingClientRect();
@@ -395,35 +466,70 @@
         };
     }
 
+    function getNodeAt(pos) {
+        return state.nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 30);
+    }
+
     function onStart(e) {
         e.preventDefault();
-        if (viewMode !== 'graph') return;
+        if (state.viewMode !== 'graph') return;
         const pos = getPos(e);
-        const hit = nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 28);
-        if (hit) {
-            dragTarget = hit;
-            dragOffsetX = pos.x - hit.x;
-            dragOffsetY = pos.y - hit.y;
-            isDrawing = false;
-            return;
+        const hit = getNodeAt(pos);
+
+        if (state.tool === 'select') {
+            if (hit) {
+                state.selectedNodeId = hit.id;
+                dragTarget = hit;
+                dragOffsetX = pos.x - hit.x;
+                dragOffsetY = pos.y - hit.y;
+                render();
+            } else {
+                state.selectedNodeId = null;
+                render();
+            }
+        } else if (state.tool === 'node') {
+            if (!hit) {
+                const id = state.nextId++;
+                state.nodes.push({ id, x: pos.x, y: pos.y, content: 'узел ' + id });
+                state.selectedNodeId = id;
+                render();
+                // Открываем редактирование
+                setTimeout(() => openEditor(id), 100);
+            }
+        } else if (state.tool === 'edge') {
+            if (hit) {
+                edgeStartNode = hit;
+                state.selectedNodeId = hit.id;
+                render();
+            }
+        } else if (state.tool === 'delete') {
+            if (hit) {
+                // Удаляем узел и все связи с ним
+                state.edges = state.edges.filter(e => e.from !== hit.id && e.to !== hit.id);
+                state.nodes = state.nodes.filter(n => n.id !== hit.id);
+                state.selectedNodeId = null;
+                if (state.bpmnActive) clearBPMN();
+                render();
+                showToast('🗑️ Узел удалён');
+            }
         }
-        isDrawing = true;
-        drawStart = { x: pos.x, y: pos.y };
     }
 
     function onMove(e) {
         e.preventDefault();
-        if (!dragTarget && !isDrawing) return;
         const pos = getPos(e);
-        if (dragTarget) {
+
+        if (state.tool === 'select' && dragTarget) {
             dragTarget.x = Math.min(W - 10, Math.max(10, pos.x - dragOffsetX));
             dragTarget.y = Math.min(H - 10, Math.max(10, pos.y - dragOffsetY));
             render();
         }
-        if (isDrawing && drawStart) {
+
+        // Визуализация рисования связи
+        if (state.tool === 'edge' && edgeStartNode) {
             render();
             ctx.beginPath();
-            ctx.moveTo(drawStart.x, drawStart.y);
+            ctx.moveTo(edgeStartNode.x, edgeStartNode.y);
             ctx.lineTo(pos.x, pos.y);
             ctx.strokeStyle = '#88aadd88';
             ctx.lineWidth = 2;
@@ -435,56 +541,65 @@
 
     function onEnd(e) {
         e.preventDefault();
-        if (isDrawing && drawStart) {
-            const pos = getPos(e);
-            const hit = nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 28);
-            if (hit && drawStart) {
-                const fromNode = nodes.find(n => Math.hypot(n.x - drawStart.x, n.y - drawStart.y) < 28);
-                if (fromNode && fromNode.id !== hit.id) {
-                    edges.push({ id: nextId++, from: fromNode.id, to: hit.id, type: 'logical' });
-                    if (bpmnActive) clearBPMN();
-                }
+        const pos = getPos(e);
+
+        if (state.tool === 'edge' && edgeStartNode) {
+            const hit = getNodeAt(pos);
+            if (hit && hit.id !== edgeStartNode.id) {
+                state.edges.push({
+                    id: state.nextId++,
+                    from: edgeStartNode.id,
+                    to: hit.id,
+                    type: 'logical'
+                });
+                if (state.bpmnActive) clearBPMN();
+                render();
+                showToast('🔗 Связь создана');
             }
+            edgeStartNode = null;
+            state.selectedNodeId = null;
             render();
-            isDrawing = false;
-            drawStart = null;
         }
+
         dragTarget = null;
     }
 
-    // ----- ДОБАВЛЕНИЕ / РЕДАКТИРОВАНИЕ УЗЛА -----
-    function addNode(x, y) {
-        const id = nextId++;
-        nodes.push({ id, x, y, content: 'узел ' + id });
-        render();
-        // открываем редактирование сразу
-        openEditor(id);
-    }
-
+    // ----- РЕДАКТОР ТЕКСТА -----
     function openEditor(id) {
-        const n = nodes.find(node => node.id === id);
+        const n = state.nodes.find(node => node.id === id);
         if (!n) return;
-        editingNodeId = id;
         document.getElementById('edit-textarea').value = n.content || '';
         document.getElementById('edit-modal').classList.add('show');
         document.getElementById('edit-textarea').focus();
+        // Сохраняем id для сохранения
+        document.getElementById('edit-modal').dataset.nodeId = id;
     }
 
     function saveEditor() {
-        const val = document.getElementById('edit-textarea').value.trim();
-        const n = nodes.find(node => node.id === editingNodeId);
-        if (n && val) {
-            n.content = val;
-            if (bpmnActive) clearBPMN();
-            render();
+        const id = parseInt(document.getElementById('edit-modal').dataset.nodeId);
+        const n = state.nodes.find(node => node.id === id);
+        if (n) {
+            const val = document.getElementById('edit-textarea').value.trim();
+            if (val) {
+                n.content = val;
+                if (state.bpmnActive) clearBPMN();
+                render();
+            }
         }
         document.getElementById('edit-modal').classList.remove('show');
-        editingNodeId = null;
     }
 
     function cancelEditor() {
         document.getElementById('edit-modal').classList.remove('show');
-        editingNodeId = null;
+    }
+
+    // ----- TOAST -----
+    function showToast(msg) {
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.style.display = 'block';
+        clearTimeout(el._timer);
+        el._timer = setTimeout(() => { el.style.display = 'none'; }, 1500);
     }
 
     // ----- СОБЫТИЯ КАНВАСА -----
@@ -498,16 +613,16 @@
     canvas.addEventListener('mouseup', onEnd);
     canvas.addEventListener('mouseleave', onEnd);
 
+    // Двойной тап для редактирования (в режиме select)
     let lastTap = 0;
     canvas.addEventListener('click', function(e) {
+        if (state.tool !== 'select') return;
         const now = Date.now();
         if (now - lastTap < 300) {
             const pos = getPos(e);
-            const hit = nodes.find(n => Math.hypot(n.x - pos.x, n.y - pos.y) < 28);
+            const hit = getNodeAt(pos);
             if (hit) {
                 openEditor(hit.id);
-            } else {
-                addNode(pos.x, pos.y);
             }
             lastTap = 0;
         } else {
@@ -526,30 +641,46 @@
         if (e.key === 'Escape') cancelEditor();
     });
 
-    // ----- КНОПКИ -----
+    // ----- КНОПКИ ИНСТРУМЕНТОВ -----
+    function setTool(tool) {
+        state.tool = tool;
+        document.querySelectorAll('.group button.tool-active').forEach(b => b.classList.remove('tool-active'));
+        const btn = document.getElementById('tool-' + tool);
+        if (btn) btn.classList.add('tool-active');
+        state.selectedNodeId = null;
+        render();
+    }
+
+    document.getElementById('tool-select').addEventListener('click', () => setTool('select'));
+    document.getElementById('tool-node').addEventListener('click', () => setTool('node'));
+    document.getElementById('tool-edge').addEventListener('click', () => setTool('edge'));
+    document.getElementById('tool-delete').addEventListener('click', () => setTool('delete'));
+
+    // ----- КНОПКИ РЕЖИМОВ -----
     document.getElementById('btn-graph').addEventListener('click', function() {
-        viewMode = 'graph';
-        if (bpmnActive) clearBPMN();
-        document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
+        state.viewMode = 'graph';
+        if (state.bpmnActive) clearBPMN();
+        document.querySelectorAll('#toolbar .group button').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         render();
     });
     document.getElementById('btn-todo').addEventListener('click', function() {
-        viewMode = 'todo';
-        if (bpmnActive) clearBPMN();
-        document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
+        state.viewMode = 'todo';
+        if (state.bpmnActive) clearBPMN();
+        document.querySelectorAll('#toolbar .group button').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         render();
     });
     document.getElementById('btn-text').addEventListener('click', function() {
-        viewMode = 'text';
-        if (bpmnActive) clearBPMN();
-        document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
+        state.viewMode = 'text';
+        if (state.bpmnActive) clearBPMN();
+        document.querySelectorAll('#toolbar .group button').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
         render();
     });
+
     document.getElementById('btn-bpmn').addEventListener('click', function() {
-        if (bpmnActive) {
+        if (state.bpmnActive) {
             clearBPMN();
         } else {
             applyBPMN();
@@ -557,9 +688,14 @@
         render();
     });
 
-    // ----- ЭКСПОРТ/ИМПОРТ JSON -----
+    // ----- ЭКСПОРТ/ИМПОРТ -----
     document.getElementById('btn-export').addEventListener('click', function() {
-        const data = { nodes, edges, viewMode };
+        const data = {
+            nodes: state.nodes,
+            edges: state.edges,
+            nextId: state.nextId,
+            viewMode: state.viewMode
+        };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -567,6 +703,7 @@
         a.download = 'graph-' + new Date().toISOString().slice(0,10) + '.json';
         a.click();
         URL.revokeObjectURL(url);
+        showToast('💾 Экспортировано');
     });
 
     document.getElementById('btn-import').addEventListener('click', function() {
@@ -580,15 +717,18 @@
             try {
                 const data = JSON.parse(ev.target.result);
                 if (data.nodes && data.edges !== undefined) {
-                    nodes = data.nodes || [];
-                    edges = data.edges || [];
-                    if (data.viewMode) viewMode = data.viewMode;
-                    if (bpmnActive) clearBPMN();
-                    document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
-                    if (viewMode === 'graph') document.getElementById('btn-graph').classList.add('active');
-                    else if (viewMode === 'todo') document.getElementById('btn-todo').classList.add('active');
-                    else if (viewMode === 'text') document.getElementById('btn-text').classList.add('active');
+                    state.nodes = data.nodes || [];
+                    state.edges = data.edges || [];
+                    state.nextId = data.nextId || 1;
+                    if (data.viewMode) state.viewMode = data.viewMode;
+                    if (state.bpmnActive) clearBPMN();
+                    // Обновляем активные кнопки
+                    document.querySelectorAll('#toolbar .group button').forEach(b => b.classList.remove('active'));
+                    if (state.viewMode === 'graph') document.getElementById('btn-graph').classList.add('active');
+                    else if (state.viewMode === 'todo') document.getElementById('btn-todo').classList.add('active');
+                    else if (state.viewMode === 'text') document.getElementById('btn-text').classList.add('active');
                     render();
+                    showToast('📂 Импортировано');
                 }
             } catch(err) { alert('Ошибка при загрузке JSON'); }
         };
@@ -596,32 +736,47 @@
         this.value = '';
     });
 
-    // ----- СТАРТ: ДЕМО-ЗАМЕТКА ЕСЛИ ПУСТО -----
+    // ----- ДЕМО-ЗАМЕТКА (если нет сохранённых данных) -----
     function initDemo() {
-        if (localStorage.getItem('graph_has_demo')) return;
-        nodes = [
-            { id: nextId++, x: 120, y: 160, content: 'Начало: заказ' },
-            { id: nextId++, x: 340, y: 200, content: 'Оплата счёта' },
-            { id: nextId++, x: 220, y: 380, content: 'Решение: проверка' },
-            { id: nextId++, x: 440, y: 400, content: 'Доставка' },
-            { id: nextId++, x: 180, y: 540, content: 'Конец: готово' }
+        if (loadState()) {
+            // Уже есть сохранённые данные
+            render();
+            return;
+        }
+
+        // Создаём демо-граф
+        state.nodes = [
+            { id: state.nextId++, x: 120, y: 160, content: 'Начало: заказ' },
+            { id: state.nextId++, x: 340, y: 200, content: 'Оплата счёта' },
+            { id: state.nextId++, x: 220, y: 380, content: 'Решение: проверка' },
+            { id: state.nextId++, x: 440, y: 400, content: 'Доставка' },
+            { id: state.nextId++, x: 180, y: 540, content: 'Конец: готово' }
         ];
-        edges = [
-            { id: nextId++, from: 1, to: 2, type: 'logical' },
-            { id: nextId++, from: 2, to: 3, type: 'logical' },
-            { id: nextId++, from: 3, to: 4, type: 'logical' },
-            { id: nextId++, from: 4, to: 5, type: 'logical' }
+        state.edges = [
+            { id: state.nextId++, from: 1, to: 2, type: 'logical' },
+            { id: state.nextId++, from: 2, to: 3, type: 'logical' },
+            { id: state.nextId++, from: 3, to: 4, type: 'logical' },
+            { id: state.nextId++, from: 4, to: 5, type: 'logical' }
         ];
-        localStorage.setItem('graph_has_demo', '1');
+        state.viewMode = 'graph';
+        state.hasDemo = true;
+        saveState();
         render();
+        showToast('📖 Демо-граф загружен. Редактируй!');
     }
 
+    // ----- СТАРТ -----
     window.addEventListener('resize', resize);
     resize();
     initDemo();
+
+    // Активируем select-инструмент по умолчанию
+    document.getElementById('tool-select').classList.add('tool-active');
     document.getElementById('btn-graph').classList.add('active');
 
-    console.log('✅ Graph готов. Двойной тап по пустому месту — создать узел. Тап по узлу — редактировать.');
+    console.log('✅ Graph Editor готов!');
+    console.log('🛠️ Инструменты: Выбрать (🖱️), Узел (✏️), Связь (🔗), Удалить (🗑️)');
+    console.log('💾 Данные автоматически сохраняются в localStorage');
 })();
 </script>
 </body>
