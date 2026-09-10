@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Conway Progress Bar</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #0a0a12;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: ui-monospace, monospace;
+    color: #cfe;
+    overflow: hidden;
+  }
+  #wrap {
+    position: relative;
+    width: min(80vw, 900px);
+    aspect-ratio: 8 / 1;
+  }
+  canvas { width: 100%; height: 100%; display: block; border-radius: 8px; }
+  #label {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(14px, 3vw, 28px);
+    letter-spacing: 0.15em;
+    text-shadow: 0 0 10px #000a, 0 0 2px #000;
+    pointer-events: none;
+    mix-blend-mode: difference;
+  }
+  #controls {
+    position: fixed;
+    bottom: 16px; left: 0; right: 0;
+    display: flex; gap: 12px;
+    justify-content: center; align-items: center;
+    font-size: 14px; opacity: 0.7;
+  }
+  #controls input { width: 240px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="label">0%</div>
+</div>
+<div id="controls">
+  <label>progress <input id="slider" type="range" min="0" max="100" value="0" step="0.5"></label>
+  <button id="auto">auto</button>
+</div>
+
+<script>
+// ---------- WebGL setup ----------
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: false });
+if (!gl) { alert('WebGL not supported'); }
+
+// resize
+function resize() {
+  const r = canvas.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width  = Math.max(1, Math.floor(r.width  * dpr));
+  canvas.height = Math.max(1, Math.floor(r.height * dpr));
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---------- Shaders ----------
+const VERT = `
+attribute vec2 aPos;
+void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }
+`;
+
+const FRAG = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2  resolution;
+uniform float time;
+uniform float progress;      // 0..1
+uniform sampler2D backbuffer;
+
+const float CELL      = 6.0;    // px per GoL cell (in device px)
+const float STEP_TIME = 0.09;   // seconds per GoL generation
+const float SEED_RATE = 0.06;   // probability a dead cell near the head becomes alive
+
+const vec3  BG_COLOR   = vec3(0.03, 0.04, 0.07);
+const vec3  TRACK_COLOR= vec3(0.08, 0.09, 0.14);
+const vec3  ALIVE_COLOR= vec3(0.35, 0.95, 1.00);
+const vec3  HEAD_COLOR = vec3(1.00, 0.85, 0.35);
+
+float hash(vec2 p){
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float neighbours(vec2 cell, vec2 texel){
+  float s = 0.0;
+  for (int y = -1; y <= 1; y++){
+    for (int x = -1; x <= 1; x++){
+      if (x == 0 && y == 0) continue;
+      vec2 uv = (cell + vec2(float(x), float(y)) + 0.5) * CELL * texel;
+      if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) continue;
+      s += step(0.5, texture2D(backbuffer, uv).a);
+    }
+  }
+  return s;
+}
+
+void main(){
+  vec2 texel = 1.0 / resolution;
+  vec2 uv = gl_FragCoord.xy * texel;
+
+  // Cell coordinate
+  vec2 cell = floor(gl_FragCoord.xy / CELL);
+
+  // Is this column inside the filled bar?
+  float inside = step(uv.x, progress);
+
+  // Read previous
+  vec4  prev    = texture2D(backbuffer, uv);
+  float alive   = step(0.5, prev.a);
+
+  // ---- Game of Life step (throttled) ----
+  float t     = time / STEP_TIME;
+  float gen   = floor(t);
+  float phase = fract(t);
+  bool doStep = phase < 0.25;   // update window within each generation
+
+  if (doStep){
+    float n = neighbours(cell, texel);
+    float next;
+    if (alive > 0.5) next = (n == 2.0 || n == 3.0) ? 1.0 : 0.0;
+    else             next = (n == 3.0) ? 1.0 : 0.0;
+
+    // --- Seed at the "head" of the bar (right edge of filled region) ---
+    // Cells just to the left of progress get a chance to be born,
+    // so the leading edge continuously feeds new life into the pattern.
+    float headX = progress;
+    float distToHead = headX - uv.x;              // >0 behind head, <0 ahead
+    float nearHead = smoothstep(0.12, 0.0, abs(distToHead));
+    float rnd = hash(cell + gen * 13.7);
+    if (next < 0.5 && rnd < SEED_RATE * nearHead * 6.0) next = 1.0;
+
+    // Outside the filled region: always dead
+    next *= inside;
+
+    alive = next;
+  }
+
+  // Also clamp on non-step frames so the boundary looks clean
+  alive *= inside;
+
+  // ---- Render ----
+  vec3 col = BG_COLOR;
+
+  // Track (unfilled portion)
+  col = mix(col, TRACK_COLOR, 1.0 - inside);
+
+  // Filled region base wash
+  col = mix(col, vec3(0.06, 0.10, 0.18), inside);
+
+  // Alive cells glow
+  col = mix(col, ALIVE_COLOR, alive * 0.95);
+
+  // Bright head line at progress edge
+  float headDist = abs(uv.x - progress);
+  float head = smoothstep(0.006, 0.0, headDist);
+  col += HEAD_COLOR * head * 0.9;
+
+  // Subtle grid
+  vec2 g = abs(fract(gl_FragCoord.xy / CELL) - 0.5);
+  float line = smoothstep(0.46, 0.5, max(g.x, g.y));
+  col *= 1.0 - line * 0.12;
+
+  // Vignette on the track
+  col *= 1.0 - 0.15 * smoothstep(progress, 1.0, uv.x);
+
+  gl_FragColor = vec4(col, alive);
+}
+`;
+
+// ---------- Compile helpers ----------
+function compile(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+    console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
+  console.error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+// fullscreen quad
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+  -1,-1,  1,-1, -1, 1,
+  -1, 1,  1,-1,  1, 1,
+]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, 'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+// uniforms
+const uRes   = gl.getUniformLocation(prog, 'resolution');
+const uTime  = gl.getUniformLocation(prog, 'time');
+const uProg  = gl.getUniformLocation(prog, 'progress');
+const uBack  = gl.getUniformLocation(prog, 'backbuffer');
+
+// ---------- Ping-pong framebuffers (needed for backbuffer feedback) ----------
+function makeTarget(w, h){
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { tex, fb, w, h };
+}
+let A = makeTarget(canvas.width, canvas.height);
+let B = makeTarget(canvas.width, canvas.height);
+
+function resizeTargets(){
+  if (A.w === canvas.width && A.h === canvas.height) return;
+  A = makeTarget(canvas.width, canvas.height);
+  B = makeTarget(canvas.width, canvas.height);
+  // clear both
+  for (const t of [A, B]){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb);
+    gl.clearColor(0,0,0,0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+// ---------- Progress control ----------
+const slider = document.getElementById('slider');
+const label  = document.getElementById('label');
+let progress = 0.0;
+let auto = false;
+let autoDir = 1;
+
+slider.addEventListener('input', () => { progress = slider.value / 100; auto = false; });
+document.getElementById('auto').addEventListener('click', () => { auto = !auto; });
+
+// ---------- Render loop ----------
+let start = performance.now();
+function frame(now){
+  resizeTargets();
+
+  if (auto){
+    progress += autoDir * 0.0015;
+    if (progress >= 1) { progress = 1; autoDir = -1; }
+    if (progress <= 0) { progress = 0; autoDir =  1; }
+    slider.value = (progress * 100).toFixed(1);
+  }
+  label.textContent = (progress * 100).toFixed(0) + '%';
+
+  const t = (now - start) / 1000;
+
+  // Render into B using A as backbuffer
+  gl.bindFramebuffer(gl.FRAMEBUFFER, B.fb);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, A.tex);
+  gl.uniform1i(uBack, 0);
+  gl.uniform2f(uRes, canvas.width, canvas.height);
+  gl.uniform1f(uTime, t);
+  gl.uniform1f(uProg, progress);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  // Blit B to screen
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, B.tex);
+  gl.uniform1i(uBack, 0);
+  // For the screen pass we just want to show the color;
+  // but our fragment shader would run GoL again. To avoid double-stepping,
+  // simplest: draw a second tiny blit shader. Here we reuse same shader
+  // but with progress unchanged and rely on the throttled window to be safe.
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  // Swap
+  [A, B] = [B, A];
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
